@@ -9,24 +9,26 @@ import argparse
 
 
 def download_txt(url, filename, folder='books/'):
-    Path(folder).mkdir(parents=True, exist_ok=True)
+    directory = os.path.join(args.dest_folder, folder)
+    Path(directory).mkdir(parents=True, exist_ok=True)
     response = requests.get(url)
     response.raise_for_status()
     if not response.history:
         filename = sanitize_filename(filename) + '.txt'
-        filepath = os.path.join(folder, filename)
+        filepath = os.path.join(args.dest_folder, folder, filename)
         with open(filepath, 'w') as file:
             file.write(response.text)
         return filepath
 
 
 def download_image(url, filename, folder='images/'):
-    Path(folder).mkdir(parents=True, exist_ok=True)
+    directory = os.path.join(args.dest_folder, folder)
+    Path(directory).mkdir(parents=True, exist_ok=True)
     response = requests.get(url)
     response.raise_for_status()
     if not response.history:
         filename = sanitize_filename(filename)
-        filepath = os.path.join(folder, filename)
+        filepath = os.path.join(args.dest_folder, folder, filename)
         with open(filepath, 'wb') as file:
             file.write(response.content)
         return filepath
@@ -61,7 +63,7 @@ def parse_book_information(url):
 def get_books_links(start, end):
     science_fiction_books_links = []
 
-    for page_number in range(start, end+1):
+    for page_number in range(start, end + 1):
         url = 'http://tululu.org/l55/{}/'.format(page_number)
         response = requests.get(url)
         response_soup = BeautifulSoup(response.text, 'lxml')
@@ -75,10 +77,15 @@ def get_books_links(start, end):
 
     return science_fiction_books_links
 
+
 def parse_console_arguments():
     parser = argparse.ArgumentParser(description='Парсинг книг из онлайн библиотеки.')
-    parser.add_argument('-s', '--start_page', help = 'Начальная страница', default=1, type=int)
-    parser.add_argument('-e', '--end_page', help = 'Конечная страница', default=1, type=int)
+    parser.add_argument('-s', '--start_page', help='Начальная страница', default=1, type=int)
+    parser.add_argument('-e', '--end_page', help='Конечная страница', default=1, type=int)
+    parser.add_argument('-df', '--dest_folder', help='Путь к каталогу с рез-тами парсинга.', default='')
+    parser.add_argument('-jp', '--json_path', help='Путь к файлу с JSON данными.', default='')
+    parser.add_argument('-si', '--skip_img', help='Не скачивать обложки.', action='store_false')
+    parser.add_argument('-st', '--skip_txt', help='Не скачивать книги.', action='store_false')
     args = parser.parse_args()
     return args
 
@@ -90,17 +97,25 @@ if __name__ == '__main__':
     books_information = []
 
     for link, id in science_fiction_books_links:
-            book_information = parse_book_information(link)
+        book_information = parse_book_information(link)
 
+        if args.skip_txt:
             txt_url = 'http://tululu.org/txt.php?id={}'.format(id)
             book_name = '{}. {}'.format(id, book_information['title'])
-            book_information['book_path'] = download_txt(txt_url, book_name, folder='books/')
+            book_information['book_path'] = download_txt(txt_url, book_name)
 
+        if args.skip_img:
             image_filename = (book_information['image_src']).split('/')[-1]
             book_information['image_src'] = download_image(book_information['image_src'], image_filename)
 
-            books_information.append(book_information)
+        books_information.append(book_information)
 
-    with open('books_information.json', 'w', encoding='utf-8') as file:
+    if args.json_path == '':
+        json_filepath = os.path.join(args.dest_folder, 'books_information.json')
+        Path(args.dest_folder).mkdir(parents=True, exist_ok=True)
+    else:
+        json_filepath = os.path.join(args.json_path, 'books_information.json')
+        Path(args.json_path).mkdir(parents=True, exist_ok=True)
+
+    with open(json_filepath, 'w', encoding='utf-8') as file:
         json.dump(books_information, file, ensure_ascii=False, indent=2)
-
