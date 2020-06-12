@@ -4,7 +4,8 @@ from bs4 import BeautifulSoup
 import os
 from pathvalidate import sanitize_filename
 from urllib.parse import urljoin
-from pprint import pprint
+import json
+import argparse
 
 
 def download_txt(url, filename, folder='books/'):
@@ -37,18 +38,16 @@ def parse_book_information(url):
     if not response.history:
         response_soup = BeautifulSoup(response.text, 'lxml')
 
-        header_element_text = response_soup.find('td', class_='ow_px_td').find('h1').text
+        header_element_text = response_soup.select_one('.ow_px_td h1').get_text()
         book_header = header_element_text.split('\xa0')[0].strip()
         book_author = header_element_text.split('\xa0')[2].strip()
 
-        image_source = response_soup.find('div', class_='bookimage').find('img')['src']
+        image_source = response_soup.select_one('.bookimage img')['src']
         image_link = urljoin('http://tululu.org/', image_source)
 
-        comments_block = response_soup.find_all('div', class_='texts')
-        comments = [comment.find('span', class_='black').text for comment in comments_block]
+        comments = [comment.text for comment in response_soup.select('.texts .black')]
 
-        genres_span = response_soup.find('span', class_='d_book').find_all('a')
-        genres = [genre.text for genre in genres_span]
+        genres = [genre.text for genre in response_soup.select('span.d_book > a')]
 
         book_information = {'title': book_header,
                             'author': book_author,
@@ -59,26 +58,35 @@ def parse_book_information(url):
         return book_information
 
 
-def get_books_links(pages):
+def get_books_links(start, end):
     science_fiction_books_links = []
 
-    for page_number in range(1, (pages)+1):
+    for page_number in range(start, end+1):
         url = 'http://tululu.org/l55/{}/'.format(page_number)
         response = requests.get(url)
         response_soup = BeautifulSoup(response.text, 'lxml')
 
-        book_cards = response_soup.find('div', id='content').find_all('table', class_='d_book')
+        book_cards = response_soup.select('#content .d_book')
 
         for book in book_cards:
-            book_link = urljoin('http://tululu.org/', book.find('a')['href'])
-            book_id = (book.find('a')['href'])[2:-1]
+            book_link = urljoin('http://tululu.org/', book.select_one('a')['href'])
+            book_id = (book.select_one('a')['href'])[2:-1]
             science_fiction_books_links.append((book_link, book_id))
 
     return science_fiction_books_links
 
+def parse_console_arguments():
+    parser = argparse.ArgumentParser(description='Парсинг книг из онлайн библиотеки.')
+    parser.add_argument('-s', '--start_page', help = 'Начальная страница', default=1, type=int)
+    parser.add_argument('-e', '--end_page', help = 'Конечная страница', default=1, type=int)
+    args = parser.parse_args()
+    return args
+
 
 if __name__ == '__main__':
-    science_fiction_books_links = get_books_links(1)
+    args = parse_console_arguments()
+
+    science_fiction_books_links = get_books_links(args.start_page, args.end_page)
     books_information = []
 
     for link, id in science_fiction_books_links:
@@ -93,6 +101,6 @@ if __name__ == '__main__':
 
             books_information.append(book_information)
 
-    pprint(books_information)
-
+    with open('books_information.json', 'w', encoding='utf-8') as file:
+        json.dump(books_information, file, ensure_ascii=False, indent=2)
 

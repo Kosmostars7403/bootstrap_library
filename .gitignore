@@ -7,9 +7,11 @@ __pycache__/
 .idea/
 .gitattributes
 venv/
+images/
 books/
 config/
 .DS_Store
+books_information.json
 
 # C extensions
 *.so
