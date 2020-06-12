@@ -6,6 +6,7 @@ from pathvalidate import sanitize_filename
 from urllib.parse import urljoin
 import json
 import argparse
+from tqdm import tqdm
 
 
 def download_txt(url, filename, folder='books/'):
@@ -94,10 +95,18 @@ if __name__ == '__main__':
     args = parse_console_arguments()
 
     science_fiction_books_links = get_books_links(args.start_page, args.end_page)
+    page_amount = args.end_page-args.start_page
     books_information = []
+
+    progress_bar = tqdm(total=100)
 
     for link, id in science_fiction_books_links:
         book_information = parse_book_information(link)
+
+        try:
+            progress_bar.update(50/(page_amount * 25))
+        except ZeroDivisionError:
+            pass
 
         if args.skip_txt:
             txt_url = 'http://tululu.org/txt.php?id={}'.format(id)
@@ -119,3 +128,5 @@ if __name__ == '__main__':
 
     with open(json_filepath, 'w', encoding='utf-8') as file:
         json.dump(books_information, file, ensure_ascii=False, indent=2)
+
+    progress_bar.close()
