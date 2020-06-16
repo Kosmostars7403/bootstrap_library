@@ -8,6 +8,13 @@ import json
 import argparse
 from tqdm import tqdm
 from contextlib import suppress
+import time
+
+def check_redirect(response):
+    if response.history:
+        raise requests.HTTPError
+
+
 
 
 def download_txt(url, filename, folder='books/'):
@@ -15,12 +22,12 @@ def download_txt(url, filename, folder='books/'):
     Path(directory).mkdir(parents=True, exist_ok=True)
     response = requests.get(url)
     response.raise_for_status()
-    if not response.history:
-        filename = sanitize_filename(filename) + '.txt'
-        filepath = os.path.join(args.dest_folder, folder, filename)
-        with open(filepath, 'w') as file:
-            file.write(response.text)
-        return filepath
+    check_redirect(response)
+    filename = sanitize_filename(filename) + '.txt'
+    filepath = os.path.join(args.dest_folder, folder, filename)
+    with open(filepath, 'w') as file:
+        file.write(response.text)
+    return filepath
 
 
 def download_image(url, filename, folder='images/'):
@@ -28,38 +35,38 @@ def download_image(url, filename, folder='images/'):
     Path(directory).mkdir(parents=True, exist_ok=True)
     response = requests.get(url)
     response.raise_for_status()
-    if not response.history:
-        filename = sanitize_filename(filename)
-        filepath = os.path.join(args.dest_folder, folder, filename)
-        with open(filepath, 'wb') as file:
-            file.write(response.content)
-        return filepath
+    check_redirect(response)
+    filename = sanitize_filename(filename)
+    filepath = os.path.join(args.dest_folder, folder, filename)
+    with open(filepath, 'wb') as file:
+        file.write(response.content)
+    return filepath
 
 
 def parse_book_information(url):
     response = requests.get(url)
     response.raise_for_status()
-    if not response.history:
-        response_soup = BeautifulSoup(response.text, 'lxml')
+    check_redirect(response)
+    response_soup = BeautifulSoup(response.text, 'lxml')
 
-        header_element_text = response_soup.select_one('.ow_px_td h1').get_text()
-        book_header = header_element_text.split('\xa0')[0].strip()
-        book_author = header_element_text.split('\xa0')[2].strip()
+    header_element_text = response_soup.select_one('.ow_px_td h1').get_text()
+    book_header = header_element_text.split('\xa0')[0].strip()
+    book_author = header_element_text.split('\xa0')[2].strip()
 
-        image_source = response_soup.select_one('.bookimage img')['src']
-        image_link = urljoin('http://tululu.org/', image_source)
+    image_source = response_soup.select_one('.bookimage img')['src']
+    image_link = urljoin(url, image_source)
 
-        comments = [comment.text for comment in response_soup.select('.texts .black')]
+    comments = [comment.text for comment in response_soup.select('.texts .black')]
 
-        genres = [genre.text for genre in response_soup.select('span.d_book > a')]
+    genres = [genre.text for genre in response_soup.select('span.d_book > a')]
 
-        book_information = {'title': book_header,
-                            'author': book_author,
-                            'comments': comments,
-                            'image_src': image_link,
-                            'genres': genres
-                            }
-        return book_information
+    book_information = {'title': book_header,
+                        'author': book_author,
+                        'comments': comments,
+                        'image_src': image_link,
+                        'genres': genres
+                        }
+    return book_information
 
 
 def get_books_links(start, end):
@@ -69,16 +76,16 @@ def get_books_links(start, end):
         url = 'http://tululu.org/l55/{}/'.format(page_number)
         response = requests.get(url)
         response.raise_for_status()
-        if not response.history:
-            response_soup = BeautifulSoup(response.text, 'lxml')
+        check_redirect(response)
+        response_soup = BeautifulSoup(response.text, 'lxml')
 
-            book_cards = response_soup.select('#content .d_book')
+        book_cards = response_soup.select('#content .d_book')
 
-            for book in book_cards:
-                book_short_link = book.select_one('a')['href']
-                book_link = urljoin('http://tululu.org/', book_short_link)
-                book_id = book_short_link[2:-1]
-                science_fiction_books_links.append((book_link, book_id))
+        for book in book_cards:
+            book_short_link = book.select_one('a')['href']
+            book_link = urljoin(url, book_short_link)
+            book_id = book_short_link[2:-1]
+            science_fiction_books_links.append((book_link, book_id))
 
     return science_fiction_books_links
 
@@ -91,36 +98,46 @@ def parse_console_arguments():
     parser.add_argument('-jp', '--json_path', help='Путь к файлу с JSON данными.', default='')
     parser.add_argument('-si', '--skip_img', help='Не скачивать обложки.', action='store_false')
     parser.add_argument('-st', '--skip_txt', help='Не скачивать книги.', action='store_false')
-    args = parser.parse_args()
-    return args
+    return parser
 
 
 if __name__ == '__main__':
-    args = parse_console_arguments()
+    parser = parse_console_arguments()
+    args = parser.parse_args()
 
-    science_fiction_books_links = get_books_links(args.start_page, args.end_page)
-    page_amount = args.end_page-args.start_page
+    try:
+        science_fiction_books_links = get_books_links(args.start_page, args.end_page)
+    except requests.HTTPError:
+        print('Указаны некорректные номера страниц, попробуйте еще раз!')
+        exit(1)
+
     books_information = []
 
     progress_bar = tqdm(science_fiction_books_links)
 
     for link, id in science_fiction_books_links:
-        book_information = parse_book_information(link)
+        try:
+            book_information = parse_book_information(link)
 
-        with suppress(ZeroDivisionError):
-            progress_bar.update(1)
+            with suppress(ZeroDivisionError):
+                progress_bar.update(1)
 
-        if args.skip_txt:
-            txt_url = 'http://tululu.org/txt.php?id={}'.format(id)
-            book_name = '{}. {}'.format(id, book_information['title'])
-            book_information['book_path'] = download_txt(txt_url, book_name)
+            if args.skip_txt:
+                txt_url = 'http://tululu.org/txt.php?id={}'.format(id)
+                book_name = '{}. {}'.format(id, book_information['title'])
+                book_information['book_path'] = download_txt(txt_url, book_name)
 
-        if args.skip_img:
-            book_source = book_information['image_src']
-            image_filename = book_source.split('/')[-1]
-            book_information['image_src'] = download_image(book_source, image_filename)
+            if args.skip_img:
+                book_source = book_information['image_src']
+                image_filename = book_source.split('/')[-1]
+                book_information['image_src'] = download_image(book_source, image_filename)
 
-        books_information.append(book_information)
+            books_information.append(book_information)
+        except (requests.HTTPError, ConnectionError):
+            time.sleep(3)
+            continue
+
+
 
     if not args.json_path:
         json_filepath = os.path.join(args.dest_folder, 'books_information.json')
