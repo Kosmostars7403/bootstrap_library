@@ -7,6 +7,7 @@ from urllib.parse import urljoin
 import json
 import argparse
 from tqdm import tqdm
+from contextlib import suppress
 
 
 def download_txt(url, filename, folder='books/'):
@@ -67,14 +68,17 @@ def get_books_links(start, end):
     for page_number in range(start, end + 1):
         url = 'http://tululu.org/l55/{}/'.format(page_number)
         response = requests.get(url)
-        response_soup = BeautifulSoup(response.text, 'lxml')
+        response.raise_for_status()
+        if not response.history:
+            response_soup = BeautifulSoup(response.text, 'lxml')
 
-        book_cards = response_soup.select('#content .d_book')
+            book_cards = response_soup.select('#content .d_book')
 
-        for book in book_cards:
-            book_link = urljoin('http://tululu.org/', book.select_one('a')['href'])
-            book_id = (book.select_one('a')['href'])[2:-1]
-            science_fiction_books_links.append((book_link, book_id))
+            for book in book_cards:
+                book_short_link = book.select_one('a')['href']
+                book_link = urljoin('http://tululu.org/', book_short_link)
+                book_id = book_short_link[2:-1]
+                science_fiction_books_links.append((book_link, book_id))
 
     return science_fiction_books_links
 
@@ -98,15 +102,13 @@ if __name__ == '__main__':
     page_amount = args.end_page-args.start_page
     books_information = []
 
-    progress_bar = tqdm(total=100)
+    progress_bar = tqdm(science_fiction_books_links)
 
     for link, id in science_fiction_books_links:
         book_information = parse_book_information(link)
 
-        try:
-            progress_bar.update(50/(page_amount * 25))
-        except ZeroDivisionError:
-            pass
+        with suppress(ZeroDivisionError):
+            progress_bar.update(1)
 
         if args.skip_txt:
             txt_url = 'http://tululu.org/txt.php?id={}'.format(id)
@@ -114,12 +116,13 @@ if __name__ == '__main__':
             book_information['book_path'] = download_txt(txt_url, book_name)
 
         if args.skip_img:
-            image_filename = (book_information['image_src']).split('/')[-1]
-            book_information['image_src'] = download_image(book_information['image_src'], image_filename)
+            book_source = book_information['image_src']
+            image_filename = book_source.split('/')[-1]
+            book_information['image_src'] = download_image(book_source, image_filename)
 
         books_information.append(book_information)
 
-    if args.json_path == '':
+    if not args.json_path:
         json_filepath = os.path.join(args.dest_folder, 'books_information.json')
         Path(args.dest_folder).mkdir(parents=True, exist_ok=True)
     else:
