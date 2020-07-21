@@ -113,14 +113,10 @@ if __name__ == '__main__':
 
     books_information = []
 
-    progress_bar = tqdm(science_fiction_books_links)
-
-    for link, id in science_fiction_books_links:
+    for link, id in tqdm(science_fiction_books_links):
         try:
             book_information = parse_book_information(link)
 
-            with suppress(ZeroDivisionError):
-                progress_bar.update(1)
 
             if args.skip_txt:
                 txt_url = 'http://tululu.org/txt.php?id={}'.format(id)
@@ -134,6 +130,7 @@ if __name__ == '__main__':
 
             books_information.append(book_information)
         except (requests.HTTPError, ConnectionError):
+            print('Ошибка! Проверьте ваше подключение к интернету. Следующая автоматическая попытка через 3 секунды..')
             time.sleep(3)
             continue
 
@@ -149,4 +146,3 @@ if __name__ == '__main__':
     with open(json_filepath, 'w', encoding='utf-8') as file:
         json.dump(books_information, file, ensure_ascii=False, indent=2)
 
-    progress_bar.close()
